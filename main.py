@@ -3,13 +3,13 @@ from discord import app_commands
 from discord.ext import commands
 import random
 import asyncio
-from datetime import datetime
+from datetime import datetime, date
 import os
 from flask import Flask
 from threading import Thread
 
 # ==========================================
-# 1. スリープ防止用のWebサーバー設定
+# 1. スリープ防止用のWebサーバー設定 (Render用)
 # ==========================================
 app = Flask('')
 
@@ -18,7 +18,6 @@ def home():
     return "Bot is running!"
 
 def run():
-    # Renderは8080ポートを期待することが多いです
     app.run(host='0.0.0.0', port=8080)
 
 def keep_alive():
@@ -26,9 +25,8 @@ def keep_alive():
     t.start()
 
 # ==========================================
-# 2. Discord Botの設定
+# 2. Discord Botの基本設定
 # ==========================================
-# ※IDは自分の環境のものに書き換えてください
 TEXT_CH_ID = 1495652835143057408
 MAIN_VC_ID = 1495652876184457286
 DEAD_VC_ID = 1495652903636041849
@@ -44,11 +42,11 @@ class MyBot(commands.Bot):
 
     async def setup_hook(self):
         await self.tree.sync()
-        print(f"✅ GM完全自動化システム(Web対応版) 起動")
+        print(f"✅ GM完全自動化システム 起動完了")
 
 bot = MyBot()
 
-# --- ゲーム管理 ---
+# --- データ管理 ---
 class GameState:
     def __init__(self):
         self.is_active = False
@@ -56,8 +54,21 @@ class GameState:
         self.alive_ids = []
         self.night_actions = {"kill": {}, "divine": None}
         self.votes = {}
+        self.omikuji_history = {}  # {user_id: last_date}
 
 game = GameState()
+
+# --- 役職配布ロジック ---
+def get_roles(count):
+    if count <= 6:
+        base = ["人狼", "占い師", "狂人", "村人", "村人", "村人"]
+    elif count == 7:
+        base = ["人狼", "人狼", "占い師", "狂人", "村人", "村人", "村人"]
+    else:
+        base = ["人狼", "人狼", "占い師", "狩人", "狂人", "村人", "村人", "村人"]
+    
+    selected = random.sample(base[:count] if count <= len(base) else base + ["村人"]*(count-len(base)), count)
+    return selected
 
 # --- 便利関数 ---
 async def set_vc_mute(vc_id: int, mute_status: bool):
@@ -92,13 +103,14 @@ async def check_victory(channel):
         return True
     return False
 
-# --- UI (ボタン) ---
+# --- UI ---
 class ActionView(discord.ui.View):
     def __init__(self, targets, action_type):
         super().__init__(timeout=60)
         self.action_type = action_type
         for t in targets:
             style = discord.ButtonStyle.danger if action_type == "kill" else discord.ButtonStyle.primary
+            if action_type == "vote": style = discord.ButtonStyle.secondary
             btn = discord.ui.Button(label=t.display_name, style=style, custom_id=str(t.id))
             btn.callback = self.create_callback(t)
             self.add_item(btn)
@@ -117,23 +129,46 @@ class ActionView(discord.ui.View):
                 await interaction.response.send_message(f"✅ {target.display_name} に投票しました。", ephemeral=True)
         return callback
 
-# --- コマンド ---
-@bot.tree.command(name="omikuji", description="あそみくじを引く")
+# --- 【修正版】日常おみくじコマンド ---
+@bot.tree.command(name="omikuji", description="今日のおみくじを引く（1日1回）")
 async def omikuji(interaction: discord.Interaction):
+    user_id = interaction.user.id
+    today = date.today()
+
+    if user_id in game.omikuji_history:
+        if game.omikuji_history[user_id] == today:
+            await interaction.response.send_message(f"⛩️ おみくじは1日1回までです。また明日引いてね！", ephemeral=True)
+            return
+
     await interaction.response.defer()
+    
+    rand = random.random() * 100
+    if rand <= 0.3:
+        key = "超吉"
+    else:
+        key = random.choice(["大吉", "中吉", "小吉", "吉", "凶", "大凶"])
+
     FORTUNES = {
-        "大吉": {"i": "🌟", "c": 0xffd700, "m": "最高の一日！ハッカソンで優勝できそう！"},
-        "中吉": {"i": "✨", "c": 0x32cd32, "m": "良いことありそう。コードがバグなしで動くかも。"},
-        "吉":   {"i": "✅", "c": 0xe0e0e0, "m": "平穏無事。エラーメッセージを読めば解決する日。"},
-        "凶":   {"i": "👻", "c": 0x4b0082, "m": "油断大敵。セミコロン忘れに注意して。"}
+        "超吉": {"i": "🌈", "c": 0xff00ff, "m": "驚愕の幸運！願い事がすべて叶うレベルの最強な一日になります！"},
+        "大吉": {"i": "🌟", "c": 0xffd700, "m": "最高にツイてる日。何をやってもうまくいくので自信を持って！"},
+        "中吉": {"i": "✨", "c": 0xff8c00, "m": "かなり良い運勢。欲しかったものが手に入ったり、良い知らせが届くかも。"},
+        "小吉": {"i": "🍀", "c": 0x32cd32, "m": "小さな幸せが見つかる日。身近な人に感謝するとさらに運気アップ。"},
+        "吉":   {"i": "✅", "c": 0xe0e0e0, "m": "穏やかで安定した一日。無理をせず、自分のペースで過ごしましょう。"},
+        "凶":   {"i": "👻", "c": 0x4b0082, "m": "ちょっとした忘れ物に注意。今日は慎重に行動するのが吉です。"},
+        "大凶": {"i": "💀", "c": 0x000000, "m": "逆にこれ以上落ちないから大丈夫！ゆっくり休んで運気を溜めよう。"}
     }
-    key = random.choice(list(FORTUNES.keys()))
+    
     data = FORTUNES[key]
-    embed = discord.Embed(title=f"⛩️ {interaction.user.display_name}さんの運勢", color=data["c"])
+    game.omikuji_history[user_id] = today
+
+    embed = discord.Embed(title=f"⛩️ {interaction.user.display_name}さんの今日の運勢", color=data["c"])
     embed.add_field(name=f"{data['i']} {key}", value=f"**{data['m']}**")
+    embed.set_footer(text="明日もまた引いてね！")
+    
     await interaction.followup.send(embed=embed)
 
-@bot.tree.command(name="play_werewolf", description="人狼ゲームをフルオートで開始")
+# --- 人狼コマンド ---
+@bot.tree.command(name="play_werewolf", description="人狼ゲームを開始")
 async def play_werewolf(interaction: discord.Interaction, discussion_sec: int = 180):
     if interaction.channel_id != TEXT_CH_ID:
         await interaction.response.send_message("進行用チャンネルで使用してください。", ephemeral=True)
@@ -147,47 +182,42 @@ async def play_werewolf(interaction: discord.Interaction, discussion_sec: int = 
 
     await interaction.response.defer()
     
-    # 役職配布
-    roles_pool = ["人狼", "占い師", "狩人", "狂人", "人狼", "村人", "村人"]
-    roles = random.sample(roles_pool[:len(members)], len(members)) if len(members) <= 7 else roles_pool + ["村人"]*(len(members)-7)
-    random.shuffle(roles)
-    
+    roles = get_roles(len(members))
     game.players = {m.id: r for m, r in zip(members, roles)}
     game.alive_ids = [m.id for m in members]
     game.is_active = True
-    wolves = [m.display_name for m in members if game.players[m.id] == "人狼"]
+    wolves_names = [m.display_name for m in members if game.players[m.id] == "人狼"]
 
     for m in members:
         role = game.players[m.id]
         msg = f"あなたの役職: **【{role}】**"
-        if role == "人狼": msg += f"\n仲間の人狼: {', '.join(wolves)}"
-        await m.send(msg)
+        if role == "人狼" and len(wolves_names) > 1:
+            msg += f"\n仲間の人狼: {', '.join(wolves_names)}"
+        try: await m.send(msg)
+        except: pass
 
-    await interaction.followup.send("🎮 **ゲーム開始！**")
+    await interaction.followup.send("🎮 **ゲーム開始！役職をDMしました。**")
 
     while game.is_active:
-        # 夜
         await interaction.channel.send("🌙 **夜が来ました。役職者はDMを確認してください。**")
         await set_vc_mute(MAIN_VC_ID, True)
-        
         game.night_actions = {"kill": {}, "divine": None}
-        targets = [m for m in members if m.id in game.alive_ids]
+        targets = [interaction.guild.get_member(pid) for pid in game.alive_ids]
         for pid in game.alive_ids:
             p = interaction.guild.get_member(pid)
             if not p: continue
-            if game.players[pid] == "人狼":
-                await p.send("🔪 襲撃先を選択：", view=ActionView(targets, "kill"))
-            elif game.players[pid] == "占い師":
-                await p.send("🔮 占う相手を選択：", view=ActionView(targets, "divine"))
-        
-        await asyncio.sleep(30)
-
-        # 朝
+            role = game.players[pid]
+            if role == "人狼":
+                k_targets = [t for t in targets if game.players[t.id] != "人狼"]
+                await p.send("🔪 **襲撃先を選択してください：**", view=ActionView(k_targets, "kill"))
+            elif role == "占い師":
+                d_targets = [t for t in targets if t.id != pid]
+                await p.send("🔮 **占う相手を選択してください：**", view=ActionView(d_targets, "divine"))
+        await asyncio.sleep(40)
         await set_vc_mute(MAIN_VC_ID, False)
         killed_id = None
         if game.night_actions["kill"]:
             killed_id = max(set(game.night_actions["kill"].values()), key=list(game.night_actions["kill"].values()).count)
-        
         if killed_id and killed_id in game.alive_ids:
             game.alive_ids.remove(killed_id)
             dead_u = interaction.guild.get_member(killed_id)
@@ -195,39 +225,46 @@ async def play_werewolf(interaction: discord.Interaction, discussion_sec: int = 
             await move_to_graveyard(killed_id)
         else:
             await interaction.channel.send("☀️ **朝です。昨夜の犠牲者はいませんでした。**")
-
         if await check_victory(interaction.channel): break
 
-        # 議論・投票
-        await interaction.channel.send(f"📢 議論（{discussion_sec}秒）")
-        await asyncio.sleep(discussion_sec)
+        await interaction.channel.send(f"📢 **議論開始！制限時間は {discussion_sec}秒 です。**")
+        remaining = discussion_sec
+        while remaining > 0:
+            if remaining > 60:
+                await asyncio.sleep(60); remaining -= 60
+                await interaction.channel.send(f"⏱️ **議論終了まで残り {remaining}秒 です。**")
+            elif remaining > 30:
+                await asyncio.sleep(remaining - 30); remaining = 30
+                await interaction.channel.send(f"⚠️ **あと30秒で議論終了です！**")
+            else:
+                await asyncio.sleep(remaining - 10)
+                await interaction.channel.send(f"⏳ **まもなく投票です！ 10... 5... 3...**")
+                await asyncio.sleep(10); remaining = 0
 
-        await interaction.channel.send("🗳️ **投票の時間です。追放する人を選んでください。**")
-        await set_vc_mute(MAIN_VC_ID, True)
+        await interaction.channel.send("🗳️ **投票の時間です。全員のDMにボタンを送信しました。**")
         game.votes = {}
-        view = ActionView([interaction.guild.get_member(pid) for pid in game.alive_ids], "vote")
-        await interaction.channel.send("ボタンを押して投票：", view=view)
-        
-        await asyncio.sleep(20)
-        
+        for pid in game.alive_ids:
+            p = interaction.guild.get_member(pid)
+            if p:
+                v_targets = [interaction.guild.get_member(tid) for tid in game.alive_ids if tid != pid]
+                try: await p.send("🗳️ **追放する人を選んでください（匿名投票）**", view=ActionView(v_targets, "vote"))
+                except: pass
+        await asyncio.sleep(30)
         if game.votes:
             ex_id = max(set(game.votes.values()), key=list(game.votes.values()).count)
             game.alive_ids.remove(ex_id)
             ex_u = interaction.guild.get_member(ex_id)
             await interaction.channel.send(f"🪦 投票の結果、{ex_u.mention} さんが追放されました。")
             await move_to_graveyard(ex_id)
-        
         if await check_victory(interaction.channel): break
         await interaction.channel.send("🔄 次の夜へ...")
         await asyncio.sleep(3)
 
-# ==========================================
-# 3. 起動
-# ==========================================
+# --- 起動 ---
 if __name__ == "__main__":
-    keep_alive()  # Webサーバー起動
+    keep_alive()
     token = os.getenv('DISCORD_TOKEN')
     if token:
         bot.run(token)
     else:
-        print("❌ エラー: DISCORD_TOKEN が設定されていません。")
+        print("❌ ERROR: DISCORD_TOKEN not found.")
