@@ -137,33 +137,40 @@ async def omikuji(interaction: discord.Interaction):
 
     if user_id in game.omikuji_history:
         if game.omikuji_history[user_id] == today:
-            await interaction.response.send_message(f"⛩️ おみくじは1日1回までです。また明日引いてね！", ephemeral=True)
+            await interaction.response.send_message(f"⛩️ おみくじは1日1回までだぞ！また明日来い！", ephemeral=True)
             return
 
     await interaction.response.defer()
     
+    # --- 確率による振り分け ---
     rand = random.random() * 100
+    
     if rand <= 0.3:
-        key = "超吉"
+        key = "隠吉"
+    elif rand <= 1.3: # 1%の確率で最悪運勢
+        key = "地の底"
     else:
-        key = random.choice(["大吉", "中吉", "小吉", "吉", "凶", "大凶"])
+        key = random.choice(["極大吉", "超大吉", "大吉", "中吉", "小吉", "凶", "大凶", "首の皮一枚"])
 
     FORTUNES = {
-        "超吉": {"i": "🌈", "c": 0xff00ff, "m": "驚愕の幸運！願い事がすべて叶うレベルの最強な一日になります！"},
-        "大吉": {"i": "🌟", "c": 0xffd700, "m": "最高にツイてる日。何をやってもうまくいくので自信を持って！"},
-        "中吉": {"i": "✨", "c": 0xff8c00, "m": "かなり良い運勢。欲しかったものが手に入ったり、良い知らせが届くかも。"},
-        "小吉": {"i": "🍀", "c": 0x32cd32, "m": "小さな幸せが見つかる日。身近な人に感謝するとさらに運気アップ。"},
-        "吉":   {"i": "✅", "c": 0xe0e0e0, "m": "穏やかで安定した一日。無理をせず、自分のペースで過ごしましょう。"},
-        "凶":   {"i": "👻", "c": 0x4b0082, "m": "ちょっとした忘れ物に注意。今日は慎重に行動するのが吉です。"},
-        "大凶": {"i": "💀", "c": 0x000000, "m": "逆にこれ以上落ちないから大丈夫！ゆっくり休んで運気を溜めよう。"}
+        "隠吉": {"i": "( ﾟДﾟ)?!", "c": 0xff00ff, "m": "今日のお前は運気が神ってるぞ！！！羨ましい..."},
+        "極大吉": {"i": "( ﾟДﾟ)おー", "c": 0xff8c00, "m": "今日のお前、かなりイケてる運気だな！"},
+        "超大吉": {"i": "( ﾟДﾟ)なかなか!", "c": 0xffd700, "m": "今日のお前はまあまあ運気があるじゃないか！"},
+        "大吉": {"i": "🌟", "c": 0xffd700, "m": "ヘッツ！大吉かよ！まあ運はあるんじゃないか？"},
+        "中吉": {"i": "✨", "c": 0x32cd32, "m": "なんだ中吉かつまんねー"},
+        "小吉": {"i": "⭐", "c": 0x32cd32, "m": "はっｗ吉ｗしょうもないね～"},
+        "凶":   {"i": "( 一一)", "c": 0x4b0082, "m": "おいおい！凶かよ！どんだけ運が悪いんだｗ"},
+        "大凶": {"i": "( ;∀;)", "c": 0x000000, "m": "大凶とかｗ 今日は外に出ないほうがいいんじゃねーか？"},
+        "首の皮一枚": {"i": "👻", "c": 0x696969, "m": "首の皮一枚でつながった運勢か．．．お前大丈夫か？"},
+        "地の底": {"i": "💀", "c": 0x000000, "m": "地の底．．．可哀そうに．．，"}
     }
     
     data = FORTUNES[key]
     game.omikuji_history[user_id] = today
 
-    embed = discord.Embed(title=f"⛩️ {interaction.user.display_name}さんの今日の運勢", color=data["c"])
+    embed = discord.Embed(title=f"⛩️ {interaction.user.display_name}さんの運勢", color=data["c"])
     embed.add_field(name=f"{data['i']} {key}", value=f"**{data['m']}**")
-    embed.set_footer(text="明日もまた引いてね！")
+    embed.set_footer(text="明日もまた引かせてやるよ")
     
     await interaction.followup.send(embed=embed)
 
