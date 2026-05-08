@@ -97,10 +97,12 @@ class MyBot(commands.Bot):
         super().__init__(command_prefix='!', intents=intents)
 
     async def setup_hook(self):
-        # Botが起動する準備段階でデータベースを初期化する
-        init_db() 
-        # スラッシュコマンドをDiscordに反映させる
-        await self.tree.sync()
+        init_db()
+        # 🌟 特定のサーバーIDをここに指定すると、反映が爆速（一瞬）になります
+        MY_GUILD = discord.Object(id=1495652835143057408) # TEXT_CH_IDがあるサーバーのID
+        self.tree.copy_global_to(guild=MY_GUILD)
+        await self.tree.sync(guild=MY_GUILD)
+        
         print(f"✅ GM完全自動化システム 起動完了")
 
 bot = MyBot()
@@ -260,7 +262,7 @@ async def omikuji(interaction: discord.Interaction):
 @bot.tree.command(name="gacha", description="コインを1枚使ってモンスターを召喚！")
 async def gacha(interaction: discord.Interaction):
     # 🌟 最初にdefer（考え中）を入れる
-    await interaction.response.defer()
+    await interaction.response.defer(ephemeral=True)
 
     # 1. チャンネルチェック
     if interaction.channel_id != GACHA_CH_ID:
