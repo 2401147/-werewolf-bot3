@@ -271,7 +271,8 @@ async def gacha(interaction: discord.Interaction):
     await interaction.response.defer()
     # 1. チャンネルチェック
     if interaction.channel_id != GACHA_CH_ID:
-        await interaction.response.send_message(
+        # 🌟 ここもfollowupにする（ephemeralはsend_messageのように使える）
+        await interaction.followup.send(
             f"❌ ここではガチャは引けないぞ！ <#{GACHA_CH_ID}> でやってくれ！", 
             ephemeral=True
         )
@@ -283,7 +284,8 @@ async def gacha(interaction: discord.Interaction):
 
     # 3. コイン枚数のチェック
     if coins < 1:
-        await interaction.response.send_message("🪙 コインが足りねーぞ！おみくじを引いて貯めてこい！", ephemeral=True)
+        # 🌟 ここもfollowup
+        await interaction.followup.send("🪙 コインが足りねーぞ！おみくじを引いて貯めてこい！", ephemeral=True)
         return
 
     # --- ここから「ガチャの処理」を開始 ---
@@ -336,8 +338,11 @@ async def gacha(interaction: discord.Interaction):
     embed = discord.Embed(title="🌀 モンスター召喚！", color=0x00ff00)
     embed.add_field(name="召喚結果", value=f"**{monster_name}** ({rarity})", inline=False)
     embed.set_footer(text=f"残りコイン: {new_coins}枚")
+
+    if image_url:
+        embed.set_image(url=image_url)
     
-    await interaction.response.send_message(embed=embed)
+  await interaction.followup.send(embed=embed)
 
 # --- コレクション確認コマンド ---
 @bot.tree.command(name="collection", description="仲間にしたモンスターを確認する")
