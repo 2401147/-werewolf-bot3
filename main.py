@@ -268,10 +268,11 @@ async def omikuji(interaction: discord.Interaction):
 # --- ガチャコマンド ---
 @bot.tree.command(name="gacha", description="コインを1枚使ってモンスターを召喚！")
 async def gacha(interaction: discord.Interaction):
+    # 🌟 最初にdefer（考え中）を入れる
     await interaction.response.defer()
+
     # 1. チャンネルチェック
     if interaction.channel_id != GACHA_CH_ID:
-        # 🌟 ここもfollowupにする（ephemeralはsend_messageのように使える）
         await interaction.followup.send(
             f"❌ ここではガチャは引けないぞ！ <#{GACHA_CH_ID}> でやってくれ！", 
             ephemeral=True
@@ -284,26 +285,21 @@ async def gacha(interaction: discord.Interaction):
 
     # 3. コイン枚数のチェック
     if coins < 1:
-        # 🌟 ここもfollowup
         await interaction.followup.send("🪙 コインが足りねーぞ！おみくじを引いて貯めてこい！", ephemeral=True)
         return
 
-    # --- ここから「ガチャの処理」を開始 ---
-    
-    # 4. コインを1枚減らす（計算）
+    # --- ガチャ処理 ---
     new_coins = coins - 1
-    today = date.today().isoformat()
+    update_user_data(user_id, new_coins, last_date)
 
-    # 5. 【重要】データベースに保存！
-    update_user_data(user_id, new_coins, last_date) # 日付は変えたくないのでlast_dateのまま
-
-    # 6. レア度設定
+    # レア度決定
     rand = random.random() * 100
     if rand <= 3: rarity = "SSR"
     elif rand <= 20: rarity = "SR"
     elif rand <= 50: rarity = "R"
     else: rarity = "N"
 
+    # データ（ここもインデントに注意！）
     MONSTER_DATA = {
         "✨ 伝説のたいが神": "https://github.com/2401147/-werewolf-bot3/blob/main/%E4%BC%9D%E8%AA%AC%E3%81%AE%E3%81%9F%E3%81%84%E3%81%8C%E7%A5%9E.png?raw=true",
         "👑 島さんの弟": "https://github.com/2401147/-werewolf-bot3/blob/main/%E5%B3%B6%E3%81%95%E3%82%93%E3%81%AE%E5%BC%9F.png?raw=true",
@@ -315,34 +311,30 @@ async def gacha(interaction: discord.Interaction):
         "🦾 ただのおっさん": "https://github.com/2401147/-werewolf-bot3/blob/main/%E3%81%9F%E3%81%A0%E3%81%AE%E3%81%8A%E3%81%A3%E3%81%95%E3%82%93.png?raw=true",
     }
 
-    # MONSTERS はそのままでOK
     MONSTERS = {
         "SSR": ["✨ 伝説のたいが神", "👑 島さんの弟"],
         "SR": ["🔥 ゆずの皮", "⚡ みかんの皮"],
         "R": ["🐼 パンダ顔のおっさん", "🐈 猫舌男"],
         "N": ["💧 ニート", "🦾 ただのおっさん"]
     }
-    
+
     monster_name = random.choice(MONSTERS[rarity])
     image_url = MONSTER_DATA.get(monster_name)
-    full_monster_name = f"[{rarity}] {monster_name}"
     
-    # 7. モンスターを所持リスト（データベース）に追加
-    # ※ add_monster(user_id, monster_name) という関数を作っている場合
-    add_monster(user_id, full_monster_name)
+    # データベースに追加
+    add_monster(user_id, f"[{rarity}] {monster_name}")
 
-    print(f"DEBUG: 選ばれたモンスター: '{monster_name}'")
-    print(f"DEBUG: 取得したURL: '{image_url}'")
-
-    # 8. 結果表示
+    # --- 結果表示 ---
     embed = discord.Embed(title="🌀 モンスター召喚！", color=0x00ff00)
     embed.add_field(name="召喚結果", value=f"**{monster_name}** ({rarity})", inline=False)
     embed.set_footer(text=f"残りコイン: {new_coins}枚")
-
+    
+    # 🌟 画像をセット！
     if image_url:
         embed.set_image(url=image_url)
     
-  await interaction.followup.send(embed=embed)
+    # 🌟 followup.send にするのを忘れずに！
+    await interaction.followup.send(embed=embed)
 
 # --- コレクション確認コマンド ---
 @bot.tree.command(name="collection", description="仲間にしたモンスターを確認する")
