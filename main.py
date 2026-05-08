@@ -99,7 +99,7 @@ class MyBot(commands.Bot):
     async def setup_hook(self):
         init_db()
         # 🌟 特定のサーバーIDをここに指定すると、反映が爆速（一瞬）になります
-        MY_GUILD = discord.Object(id=1495652835143057408) # TEXT_CH_IDがあるサーバーのID
+        MY_GUILD = discord.Object(id=1306589891026489425) # TEXT_CH_IDがあるサーバーのID
         self.tree.copy_global_to(guild=MY_GUILD)
         await self.tree.sync(guild=MY_GUILD)
         
