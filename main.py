@@ -268,6 +268,7 @@ async def omikuji(interaction: discord.Interaction):
 # --- ガチャコマンド ---
 @bot.tree.command(name="gacha", description="コインを1枚使ってモンスターを召喚！")
 async def gacha(interaction: discord.Interaction):
+    await interaction.response.defer()
     # 1. チャンネルチェック
     if interaction.channel_id != GACHA_CH_ID:
         await interaction.response.send_message(
