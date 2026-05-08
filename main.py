@@ -193,49 +193,41 @@ class ActionView(discord.ui.View):
 # --- 【修正版】日常おみくじコマンド ---
 @bot.tree.command(name="omikuji", description="毒舌おみくじを引いてガチャコインを3枚ゲット！")
 async def omikuji(interaction: discord.Interaction):
-    # --- 1. まずは場所（チャンネル）のチェック！ ---
-    if interaction.channel_id != OMIKUJI_CH_ID:
-        await interaction.response.send_message(
-            f"❌ ここはおみくじ会場じゃないぞ！ <#{OMIKUJI_CH_ID}> で引け！", 
-            ephemeral=True
-        )
-        return
+    # 🌟 まず最初に「考え中...」にする（これで3秒ルールを突破！）
+    await interaction.response.defer()
 
     user_id = interaction.user.id
     coins, last_date = get_user_data(user_id)
     today = date.today().isoformat()
 
-    # --- デイリーチェック ---
-    if last_date == today:
-        await interaction.response.send_message(f"⛩️ おみくじは1日1回までだぞ！また明日来い！", ephemeral=True)
+    # --- 1. 場所（チャンネル）のチェック ---
+    if interaction.channel_id != OMIKUJI_CH_ID:
+        # 🌟 deferの後なので followup.send を使う
+        await interaction.followup.send(
+            f"❌ ここはおみくじ会場じゃないぞ！ <#{OMIKUJI_CH_ID}> で引け！", 
+            ephemeral=True
+        )
         return
 
-    await interaction.response.defer()
-    
-    # --- 確率による振り分け ---
+    # --- 2. デイリーチェック ---
+    if last_date == today:
+        # 🌟 deferの後なので followup.send を使う
+        await interaction.followup.send(f"⛩️ おみくじは1日1回までだぞ！また明日来い！", ephemeral=True)
+        return
+
+    # --- 3. 確率による振り分け (ここからは今のコードと同じ) ---
     rand = random.random() * 100
-    if rand <= 0.3:
-        key = "隠吉"
-    elif rand <= 3.3:
-        key = "地の底"
-    elif rand <= 10.0:
-        key = "極大吉"
-    elif rand <= 25.0:
-        key = "超大吉"
-    elif rand <= 45.0:
-        key = "大吉"
-    elif rand <= 65.0:
-        key = "中吉"
-    elif rand <= 80.0:
-        key = "小吉"
-    elif rand <= 90.0:
-        key = "凶"
-    elif rand <= 97.0:
-        key = "大凶"
-    else:
-        key = "首の皮一枚"
+    if rand <= 0.3: key = "隠吉"
+    elif rand <= 3.3: key = "地の底"
+    elif rand <= 10.0: key = "極大吉"
+    elif rand <= 25.0: key = "超大吉"
+    elif rand <= 45.0: key = "大吉"
+    elif rand <= 65.0: key = "中吉"
+    elif rand <= 80.0: key = "小吉"
+    elif rand <= 90.0: key = "凶"
+    elif rand <= 97.0: key = "大凶"
+    else: key = "首の皮一枚"
     
-    # --- 毒舌コメント設定 ---
     FORTUNES = {
         "隠吉": {"i": "㊗️", "c": 0xff00ff, "m": "今日のお前は運気が神ってるぞ！！！羨ましい..."},
         "地の底": {"i": "💀", "c": 0x000000, "m": "地の底．．．可哀そうに．．，"},
@@ -251,19 +243,18 @@ async def omikuji(interaction: discord.Interaction):
     
     data = FORTUNES[key]
     
-    # --- 履歴保存 & コイン付与 ---
+    # 履歴保存 & コイン付与
     new_coins = coins + 3
     update_user_data(user_id, new_coins, today)
-    # --- 結果の送信 ---
+
+    # 結果の送信
     embed = discord.Embed(title=f"⛩️ {interaction.user.display_name}さんの運勢", color=data["c"])
     embed.add_field(name=f"{data['i']} {key}", value=f"**{data['m']}**", inline=False)
     embed.add_field(name="🎁 特典", value="**ガチャコインを3枚** 手に入れました！", inline=False)
-    
-    # ここも保存した後の枚数（new_coins）を表示
     embed.set_footer(text=f"現在の所持コイン: {new_coins}枚 | 明日もまた引かせてやるよ")
     
+    # 🌟 最後に followup.send で送信！
     await interaction.followup.send(embed=embed)
-
 
 # --- ガチャコマンド ---
 @bot.tree.command(name="gacha", description="コインを1枚使ってモンスターを召喚！")
