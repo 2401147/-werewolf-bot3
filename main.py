@@ -265,7 +265,7 @@ async def omikuji(interaction: discord.Interaction):
 # --- ガチャコマンド ---
 @bot.tree.command(name="gacha", description="コインを1枚使ってモンスターを召喚！")
 async def gacha(interaction: discord.Interaction):
-    # --- チャンネル固定のチェック ---
+    # 1. チャンネルチェック
     if interaction.channel_id != GACHA_CH_ID:
         await interaction.response.send_message(
             f"❌ ここではガチャは引けないぞ！ <#{GACHA_CH_ID}> でやってくれ！", 
@@ -273,28 +273,31 @@ async def gacha(interaction: discord.Interaction):
         )
         return
 
+    # 2. データベースから現在のコイン枚数を取得
     user_id = interaction.user.id
     coins, last_date = get_user_data(user_id)
-    today = date.today().isoformat()
 
-    # ⭐ これが重要！データベースに書き込む
-    update_user_data(user_id, new_coins, today)
-
+    # 3. コイン枚数のチェック
     if coins < 1:
         await interaction.response.send_message("🪙 コインが足りねーぞ！おみくじを引いて貯めてこい！", ephemeral=True)
         return
 
-    # コイン消費
-    game.user_coins[user_id] -= 1
+    # --- ここから「ガチャの処理」を開始 ---
     
-    # レア度設定 (SSR 3%, SR 17%, R 30%, N 50%)
+    # 4. コインを1枚減らす（計算）
+    new_coins = coins - 1
+    today = date.today().isoformat()
+
+    # 5. 【重要】データベースに保存！
+    update_user_data(user_id, new_coins, last_date) # 日付は変えたくないのでlast_dateのまま
+
+    # 6. レア度設定
     rand = random.random() * 100
     if rand <= 3: rarity = "SSR"
     elif rand <= 20: rarity = "SR"
     elif rand <= 50: rarity = "R"
     else: rarity = "N"
 
-    # モンスターリスト（ここを書き換えてキャラを増やせるぞ！）
     MONSTERS = {
         "SSR": ["✨ 伝説のたいが神", "👑 キングフライパン"],
         "SR": ["🔥 ゆずの皮", "⚡ みかんの皮"],
@@ -302,16 +305,17 @@ async def gacha(interaction: discord.Interaction):
         "N": ["💧 ニート", "🦾 ただのおっさん"]
     }
     
-    monster = random.choice(MONSTERS[rarity])
+    monster_name = random.choice(MONSTERS[rarity])
+    full_monster_name = f"[{rarity}] {monster_name}"
     
-    # 所持リストに追加
-    if user_id not in game.user_monsters:
-        game.user_monsters[user_id] = []
-    game.user_monsters[user_id].append(f"[{rarity}] {monster}")
+    # 7. モンスターを所持リスト（データベース）に追加
+    # ※ add_monster(user_id, monster_name) という関数を作っている場合
+    add_monster(user_id, full_monster_name)
 
+    # 8. 結果表示
     embed = discord.Embed(title="🌀 モンスター召喚！", color=0x00ff00)
-    embed.add_field(name="召喚結果", value=f"**{monster}** ({rarity})")
-    embed.set_footer(text=f"残りコイン: {game.user_coins[user_id]}枚")
+    embed.add_field(name="召喚結果", value=f"**{monster_name}** ({rarity})", inline=False)
+    embed.set_footer(text=f"残りコイン: {new_coins}枚")
     
     await interaction.response.send_message(embed=embed)
 
