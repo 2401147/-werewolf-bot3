@@ -328,6 +328,9 @@ async def gacha(interaction: discord.Interaction):
     # ※ add_monster(user_id, monster_name) という関数を作っている場合
     add_monster(user_id, full_monster_name)
 
+    print(f"DEBUG: 選ばれたモンスター: '{monster_name}'")
+    print(f"DEBUG: 取得したURL: '{image_url}'")
+
     # 8. 結果表示
     embed = discord.Embed(title="🌀 モンスター召喚！", color=0x00ff00)
     embed.add_field(name="召喚結果", value=f"**{monster_name}** ({rarity})", inline=False)
