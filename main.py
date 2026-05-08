@@ -294,14 +294,14 @@ async def gacha(interaction: discord.Interaction):
 
     # データ（ここもインデントに注意！）
     MONSTER_DATA = {
-        "✨ 伝説のたいが神": "https://github.com/2401147/-werewolf-bot3/blob/main/a.png?raw=true",
-        "👑 島さんの弟": "https://github.com/2401147/-werewolf-bot3/blob/main/d.png?raw=true",
-        "🔥 ゆずの皮": "https://github.com/2401147/-werewolf-bot3/blob/main/c.png?raw=true",
-        "⚡ みかんの皮": "https://github.com/2401147/-werewolf-bot3/blob/main/b.png?raw=true",
-        "🐼 パンダ顔のおっさん": "https://github.com/2401147/-werewolf-bot3/blob/main/e.png?raw=true",
-        "🐈 猫舌男": "https://github.com/2401147/-werewolf-bot3/blob/main/h.png?raw=true",
-        "💧 ニート": "https://github.com/2401147/-werewolf-bot3/blob/main/f.png?raw=true",
-        "🦾 ただのおっさん": "https://github.com/2401147/-werewolf-bot3/blob/main/g.png?raw=true",
+        "✨ 伝説のたいが神": "https://raw.githubusercontent.com/2401147/-werewolf-bot3/main/a.png",
+        "👑 島さんの弟": "https://raw.githubusercontent.com/2401147/-werewolf-bot3/main/d.png",
+        "🔥 ゆずの皮": "https://raw.githubusercontent.com/2401147/-werewolf-bot3/main/c.png",
+        "⚡ みかんの皮": "https://raw.githubusercontent.com/2401147/-werewolf-bot3/main/b.png",
+        "🐼 パンダ顔のおっさん": "https://raw.githubusercontent.com/2401147/-werewolf-bot3/main/e.png",
+        "🐈 猫舌男": "https://raw.githubusercontent.com/2401147/-werewolf-bot3/main/h.png",
+        "💧 ニート": "https://raw.githubusercontent.com/2401147/-werewolf-bot3/main/f.png",
+        "🦾 ただのおっさん": "https://raw.githubusercontent.com/2401147/-werewolf-bot3/main/g.png",
     }
 
     MONSTERS = {
