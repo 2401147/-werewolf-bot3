@@ -5,8 +5,10 @@ import random
 import asyncio
 from datetime import datetime, date
 import os
+import sqlite3  # ← これが必要！
 from flask import Flask
 from threading import Thread
+
 
 # ==========================================
 # 1. スリープ防止用のWebサーバー設定 (Render用)
@@ -24,12 +26,62 @@ def keep_alive():
     t = Thread(target=run)
     t.start()
 
+# --- データベース設定（ここが保存のキモ） ---
+DB_NAME = "bot_data.db"
+
+def init_db():
+    conn = sqlite3.connect(DB_NAME)
+    c = conn.cursor()
+    # ユーザーデータテーブル（コイン、おみくじ日）
+    c.execute('''CREATE TABLE IF NOT EXISTS users 
+                 (user_id INTEGER PRIMARY KEY, coins INTEGER DEFAULT 0, last_date TEXT)''')
+    # モンスター所持テーブル
+    c.execute('''CREATE TABLE IF NOT EXISTS inventory 
+                 (user_id INTEGER, monster_name TEXT)''')
+    conn.commit()
+    conn.close()
+
+def get_user_data(user_id):
+    conn = sqlite3.connect(DB_NAME)
+    c = conn.cursor()
+    c.execute("SELECT coins, last_date FROM users WHERE user_id = ?", (user_id,))
+    row = c.fetchone()
+    conn.close()
+    return row if row else (0, "")
+
+def update_user_data(user_id, coins, last_date):
+    conn = sqlite3.connect(DB_NAME)
+    c = conn.cursor()
+    c.execute("INSERT OR REPLACE INTO users (user_id, coins, last_date) VALUES (?, ?, ?)", 
+              (user_id, coins, last_date))
+    conn.commit()
+    conn.close()
+
+def add_monster(user_id, monster_name):
+    conn = sqlite3.connect(DB_NAME)
+    c = conn.cursor()
+    c.execute("INSERT INTO inventory (user_id, monster_name) VALUES (?, ?)", (user_id, monster_name))
+    conn.commit()
+    conn.close()
+
+def get_inventory(user_id):
+    conn = sqlite3.connect(DB_NAME)
+    c = conn.cursor()
+    c.execute("SELECT monster_name FROM inventory WHERE user_id = ?", (user_id,))
+    rows = c.fetchall()
+    conn.close()
+    return [r[0] for r in rows]
+
+
 # ==========================================
 # 2. Discord Botの基本設定
 # ==========================================
 TEXT_CH_ID = 1495652835143057408
 MAIN_VC_ID = 1495652876184457286
 DEAD_VC_ID = 1495652903636041849
+
+OMIKUJI_CH_ID = 1495656809560805377  # おみくじ用
+GACHA_CH_ID = 1502210813577138327    # ガチャ・コレクション用
 
 intents = discord.Intents.default()
 intents.message_content = True 
@@ -38,9 +90,13 @@ intents.voice_states = True
 
 class MyBot(commands.Bot):
     def __init__(self):
+        # ここでは基本設定だけを行う
         super().__init__(command_prefix='!', intents=intents)
 
     async def setup_hook(self):
+        # Botが起動する準備段階でデータベースを初期化する
+        init_db() 
+        # スラッシュコマンドをDiscordに反映させる
         await self.tree.sync()
         print(f"✅ GM完全自動化システム 起動完了")
 
@@ -55,6 +111,8 @@ class GameState:
         self.night_actions = {"kill": {}, "divine": None}
         self.votes = {}
         self.omikuji_history = {}  # {user_id: last_date}
+        self.user_coins = {}
+        self.user_monsters = {}
 
 game = GameState()
 
@@ -130,65 +188,160 @@ class ActionView(discord.ui.View):
         return callback
 
 # --- 【修正版】日常おみくじコマンド ---
-@bot.tree.command(name="omikuji", description="今日のおみくじを引く（1日1回）")
+@bot.tree.command(name="omikuji", description="毒舌おみくじを引いてガチャコインを3枚ゲット！")
 async def omikuji(interaction: discord.Interaction):
+    # --- 1. まずは場所（チャンネル）のチェック！ ---
+    if interaction.channel_id != OMIKUJI_CH_ID:
+        await interaction.response.send_message(
+            f"❌ ここはおみくじ会場じゃないぞ！ <#{OMIKUJI_CH_ID}> で引け！", 
+            ephemeral=True
+        )
+        return
+
     user_id = interaction.user.id
     today = date.today()
 
-    if user_id in game.omikuji_history:
-        if game.omikuji_history[user_id] == today:
-            await interaction.response.send_message(f"⛩️ おみくじは1日1回までだぞ！また明日来い！", ephemeral=True)
-            return
+    # --- デイリーチェック ---
+    if user_id in game.omikuji_history and game.omikuji_history[user_id] == today:
+        await interaction.response.send_message(f"⛩️ おみくじは1日1回までだぞ！また明日来い！", ephemeral=True)
+        return
 
     await interaction.response.defer()
     
     # --- 確率による振り分け ---
     rand = random.random() * 100
-    
     if rand <= 0.3:
-        key = "隠吉"         # 0.3% (0.0 ～ 0.3)
+        key = "隠吉"
     elif rand <= 3.3:
-        key = "地の底"       # 3.0% (0.3 ～ 3.3)
+        key = "地の底"
     elif rand <= 10.0:
-        key = "極大吉"       # 6.7% (3.3 ～ 10.0)
+        key = "極大吉"
     elif rand <= 25.0:
-        key = "超大吉"       # 15.0% (10.0 ～ 25.0)
+        key = "超大吉"
     elif rand <= 45.0:
-        key = "大吉"         # 20.0% (25.0 ～ 45.0)
+        key = "大吉"
     elif rand <= 65.0:
-        key = "中吉"         # 20.0% (45.0 ～ 65.0)
+        key = "中吉"
     elif rand <= 80.0:
-        key = "小吉"         # 15.0% (65.0 ～ 80.0)
+        key = "小吉"
     elif rand <= 90.0:
-        key = "凶"           # 10.0% (80.0 ～ 90.0)
+        key = "凶"
     elif rand <= 97.0:
-        key = "大凶"         # 7.0% (90.0 ～ 97.0)
+        key = "大凶"
     else:
-        key = "首の皮一枚"   # 3.0% (97.0 ～ 100.0)
+        key = "首の皮一枚"
     
+    # --- 毒舌コメント設定 ---
     FORTUNES = {
-        "隠吉": {"i": "㊗️", "c": 0xff00ff, "m": "今日のお前は運気が神ってるぞ！！！羨ましい..."},
-        "極大吉": {"i": "🎇", "c": 0xff8c00, "m": "今日のお前、かなりイケてる運気だな！"},
-        "超大吉": {"i": "🎆", "c": 0xffd700, "m": "今日のお前はまあまあ運気があるじゃないか！"},
+        "隠吉": {"i": "( ﾟДﾟ)?!", "c": 0xff00ff, "m": "今日のお前は運気が神ってるぞ！！！羨ましい..."},
+        "地の底": {"i": "💀", "c": 0x000000, "m": "地の底．．．可哀そうに．．，"},
+        "極大吉": {"i": "( ﾟДﾟ)おー", "c": 0xff8c00, "m": "今日のお前、かなりイケてる運気だな！"},
+        "超大吉": {"i": "( ﾟДﾟ)なかなか!", "c": 0xffd700, "m": "今日のお前はまあまあ運気があるじゃないか！"},
         "大吉": {"i": "🌟", "c": 0xffd700, "m": "ヘッツ！大吉かよ！まあ運はあるんじゃないか？"},
         "中吉": {"i": "✨", "c": 0x32cd32, "m": "なんだ中吉かつまんねー"},
         "小吉": {"i": "⭐", "c": 0x32cd32, "m": "はっｗ吉ｗしょうもないね～"},
-        "凶":   {"i": "❌", "c": 0x4b0082, "m": "おいおい！凶かよ！どんだけ運が悪いんだｗ"},
-        "大凶": {"i": "🚫", "c": 0x000000, "m": "大凶とかｗ 今日は外に出ないほうがいいんじゃねーか？"},
-        "首の皮一枚": {"i": "👻", "c": 0x696969, "m": "首の皮一枚でつながった運勢か．．．お前大丈夫か？"},
-        "地の底": {"i": "💀", "c": 0x000000, "m": "地の底．．．可哀そうに．．，"}
+        "凶": {"i": "( 一一)", "c": 0x4b0082, "m": "おいおい！凶かよ！どんだけ運が悪いんだｗ"},
+        "大凶": {"i": "( ;∀;)", "c": 0x000000, "m": "大凶とかｗ 今日は外に出ないほうがいいんじゃねーか？"},
+        "首の皮一枚": {"i": "👻", "c": 0x696969, "m": "首の皮一枚でつながった運勢か．．．お前大丈夫か？"}
     }
     
     data = FORTUNES[key]
+    
+    # --- 履歴保存 & コイン付与 ---
     game.omikuji_history[user_id] = today
+    current_coins = game.user_coins.get(user_id, 0)
+    game.user_coins[user_id] = current_coins + 3
 
+    # --- 結果の送信 ---
     embed = discord.Embed(title=f"⛩️ {interaction.user.display_name}さんの運勢", color=data["c"])
-    embed.add_field(name=f"{data['i']} {key}", value=f"**{data['m']}**")
-    embed.set_footer(text="明日もまた引かせてやるよ")
+    embed.add_field(name=f"{data['i']} {key}", value=f"**{data['m']}**", inline=False)
+    embed.add_field(name="🎁 特典", value="**ガチャコインを3枚** 手に入れました！", inline=False)
+    embed.set_footer(text=f"現在の所持コイン: {game.user_coins[user_id]}枚 | 明日もまた引かせてやるよ")
     
     await interaction.followup.send(embed=embed)
 
 # --- 人狼コマンド ---
+
+# --- ガチャコマンド ---
+@bot.tree.command(name="gacha", description="コインを1枚使ってモンスターを召喚！")
+async def gacha(interaction: discord.Interaction):
+    # --- チャンネル固定のチェック ---
+    if interaction.channel_id != GACHA_CH_ID:
+        await interaction.response.send_message(
+            f"❌ ここではガチャは引けないぞ！ <#{GACHA_CH_ID}> でやってくれ！", 
+            ephemeral=True
+        )
+        return
+
+    user_id = interaction.user.id
+    coins, last_date = get_user_data(user_id)
+
+    if coins < 1:
+        await interaction.response.send_message("🪙 コインが足りねーぞ！おみくじを引いて貯めてこい！", ephemeral=True)
+        return
+
+    # コイン消費
+    game.user_coins[user_id] -= 1
+    
+    # レア度設定 (SSR 3%, SR 17%, R 30%, N 50%)
+    rand = random.random() * 100
+    if rand <= 3: rarity = "SSR"
+    elif rand <= 20: rarity = "SR"
+    elif rand <= 50: rarity = "R"
+    else: rarity = "N"
+
+    # モンスターリスト（ここを書き換えてキャラを増やせるぞ！）
+    MONSTERS = {
+        "SSR": ["✨ 伝説のたいが神", "👑 キングフライパン"],
+        "SR": ["🔥 ゆずの皮", "⚡ みかんの皮"],
+        "R": ["🐼 パンダ顔のおっさん", "🐈 猫舌男"],
+        "N": ["💧 ニート", "🦾 ただのおっさん"]
+    }
+    
+    monster = random.choice(MONSTERS[rarity])
+    
+    # 所持リストに追加
+    if user_id not in game.user_monsters:
+        game.user_monsters[user_id] = []
+    game.user_monsters[user_id].append(f"[{rarity}] {monster}")
+
+    embed = discord.Embed(title="🌀 モンスター召喚！", color=0x00ff00)
+    embed.add_field(name="召喚結果", value=f"**{monster}** ({rarity})")
+    embed.set_footer(text=f"残りコイン: {game.user_coins[user_id]}枚")
+    
+    await interaction.response.send_message(embed=embed)
+
+# --- コレクション確認コマンド ---
+@bot.tree.command(name="collection", description="仲間にしたモンスターを確認する")
+async def collection(interaction: discord.Interaction):
+    # --- 1. まず場所をチェック！ ---
+    if interaction.channel_id != GACHA_CH_ID:
+        await interaction.response.send_message(
+            f"❌ 自分の仲間は <#{GACHA_CH_ID}> で確認してくれ！", 
+            ephemeral=True
+        )
+        return
+
+    # --- 2. ここからメインの処理 ---
+    user_id = interaction.user.id
+    
+    # データベース（保存機能）を使う場合はこっち
+    monsters = get_inventory(user_id)
+    
+    # もし一時保存（game.user_monsters）を使っているならこれ
+    # monsters = game.user_monsters.get(user_id, [])
+    
+    if not monsters:
+        await interaction.response.send_message("まだモンスターを1匹も持ってないな。寂しい奴め！", ephemeral=True)
+        return
+    
+    # 重複を数えて表示を見やすくする
+    from collections import Counter
+    counts = Counter(monsters)
+    msg = "\n".join([f"{m} ×{c}" for m, c in counts.items()])
+    
+    await interaction.response.send_message(f"👾 **{interaction.user.display_name}のコレクション**\n{msg}")
+
 @bot.tree.command(name="play_werewolf", description="人狼ゲームを開始")
 async def play_werewolf(interaction: discord.Interaction, discussion_sec: int = 180):
     if interaction.channel_id != TEXT_CH_ID:
