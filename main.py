@@ -10,6 +10,55 @@ from flask import Flask
 from threading import Thread
 
 
+def init_db():
+    conn = sqlite3.connect('bot_data.db')
+    c = conn.cursor()
+    # ユーザーデータテーブル（コインと日付）
+    c.execute('''CREATE TABLE IF NOT EXISTS users
+                 (user_id INTEGER PRIMARY KEY, coins INTEGER, last_omikuji TEXT)''')
+    # モンスター所持テーブル
+    c.execute('''CREATE TABLE IF NOT EXISTS inventory
+                 (user_id INTEGER, monster_name TEXT)''')
+    conn.commit()
+    conn.close()
+
+# 2. データを読み込む
+def get_user_data(user_id):
+    conn = sqlite3.connect('bot_data.db')
+    c = conn.cursor()
+    c.execute("SELECT coins, last_omikuji FROM users WHERE user_id = ?", (user_id,))
+    result = c.fetchone()
+    conn.close()
+    if result:
+        return result[0], result[1] # (コイン数, 日付)
+    return 0, None # 初めての人
+
+# 3. データを書き込む（更新）
+def update_user_data(user_id, coins, last_date):
+    conn = sqlite3.connect('bot_data.db')
+    c = conn.cursor()
+    c.execute("INSERT OR REPLACE INTO users (user_id, coins, last_omikuji) VALUES (?, ?, ?)",
+              (user_id, coins, last_date))
+    conn.commit()
+    conn.close()
+
+# 4. モンスターを保存する
+def add_monster(user_id, monster_name):
+    conn = sqlite3.connect('bot_data.db')
+    c = conn.cursor()
+    c.execute("INSERT INTO inventory (user_id, monster_name) VALUES (?, ?)", (user_id, monster_name))
+    conn.commit()
+    conn.close()
+
+# 5. 所持リストを読み込む
+def get_inventory(user_id):
+    conn = sqlite3.connect('bot_data.db')
+    c = conn.cursor()
+    c.execute("SELECT monster_name FROM inventory WHERE user_id = ?", (user_id,))
+    rows = c.fetchall()
+    conn.close()
+    return [row[0] for row in rows]
+
 # ==========================================
 # 1. スリープ防止用のWebサーバー設定 (Render用)
 # ==========================================
@@ -25,52 +74,6 @@ def run():
 def keep_alive():
     t = Thread(target=run)
     t.start()
-
-# --- データベース設定（ここが保存のキモ） ---
-DB_NAME = "bot_data.db"
-
-def init_db():
-    conn = sqlite3.connect(DB_NAME)
-    c = conn.cursor()
-    # ユーザーデータテーブル（コイン、おみくじ日）
-    c.execute('''CREATE TABLE IF NOT EXISTS users 
-                 (user_id INTEGER PRIMARY KEY, coins INTEGER DEFAULT 0, last_date TEXT)''')
-    # モンスター所持テーブル
-    c.execute('''CREATE TABLE IF NOT EXISTS inventory 
-                 (user_id INTEGER, monster_name TEXT)''')
-    conn.commit()
-    conn.close()
-
-def get_user_data(user_id):
-    conn = sqlite3.connect(DB_NAME)
-    c = conn.cursor()
-    c.execute("SELECT coins, last_date FROM users WHERE user_id = ?", (user_id,))
-    row = c.fetchone()
-    conn.close()
-    return row if row else (0, "")
-
-def update_user_data(user_id, coins, last_date):
-    conn = sqlite3.connect(DB_NAME)
-    c = conn.cursor()
-    c.execute("INSERT OR REPLACE INTO users (user_id, coins, last_date) VALUES (?, ?, ?)", 
-              (user_id, coins, last_date))
-    conn.commit()
-    conn.close()
-
-def add_monster(user_id, monster_name):
-    conn = sqlite3.connect(DB_NAME)
-    c = conn.cursor()
-    c.execute("INSERT INTO inventory (user_id, monster_name) VALUES (?, ?)", (user_id, monster_name))
-    conn.commit()
-    conn.close()
-
-def get_inventory(user_id):
-    conn = sqlite3.connect(DB_NAME)
-    c = conn.cursor()
-    c.execute("SELECT monster_name FROM inventory WHERE user_id = ?", (user_id,))
-    rows = c.fetchall()
-    conn.close()
-    return [r[0] for r in rows]
 
 
 # ==========================================
@@ -199,10 +202,11 @@ async def omikuji(interaction: discord.Interaction):
         return
 
     user_id = interaction.user.id
-    today = date.today()
+    coins, last_date = get_user_data(user_id)
+    today = date.today().isoformat()
 
     # --- デイリーチェック ---
-    if user_id in game.omikuji_history and game.omikuji_history[user_id] == today:
+    if last_date == today:
         await interaction.response.send_message(f"⛩️ おみくじは1日1回までだぞ！また明日来い！", ephemeral=True)
         return
 
@@ -248,19 +252,18 @@ async def omikuji(interaction: discord.Interaction):
     data = FORTUNES[key]
     
     # --- 履歴保存 & コイン付与 ---
-    game.omikuji_history[user_id] = today
-    current_coins = game.user_coins.get(user_id, 0)
-    game.user_coins[user_id] = current_coins + 3
-
+    new_coins = coins + 3
+    update_user_data(user_id, new_coins, today)
     # --- 結果の送信 ---
     embed = discord.Embed(title=f"⛩️ {interaction.user.display_name}さんの運勢", color=data["c"])
     embed.add_field(name=f"{data['i']} {key}", value=f"**{data['m']}**", inline=False)
     embed.add_field(name="🎁 特典", value="**ガチャコインを3枚** 手に入れました！", inline=False)
-    embed.set_footer(text=f"現在の所持コイン: {game.user_coins[user_id]}枚 | 明日もまた引かせてやるよ")
+    
+    # ここも保存した後の枚数（new_coins）を表示
+    embed.set_footer(text=f"現在の所持コイン: {new_coins}枚 | 明日もまた引かせてやるよ")
     
     await interaction.followup.send(embed=embed)
 
-# --- 人狼コマンド ---
 
 # --- ガチャコマンド ---
 @bot.tree.command(name="gacha", description="コインを1枚使ってモンスターを召喚！")
@@ -349,6 +352,8 @@ async def collection(interaction: discord.Interaction):
     msg = "\n".join([f"{m} ×{c}" for m, c in counts.items()])
     
     await interaction.response.send_message(f"👾 **{interaction.user.display_name}のコレクション**\n{msg}")
+
+# 人狼コマンド
 
 @bot.tree.command(name="play_werewolf", description="人狼ゲームを開始")
 async def play_werewolf(interaction: discord.Interaction, discussion_sec: int = 180):
