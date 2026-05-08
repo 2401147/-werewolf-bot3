@@ -275,6 +275,10 @@ async def gacha(interaction: discord.Interaction):
 
     user_id = interaction.user.id
     coins, last_date = get_user_data(user_id)
+    today = date.today().isoformat()
+
+    # ⭐ これが重要！データベースに書き込む
+    update_user_data(user_id, new_coins, today)
 
     if coins < 1:
         await interaction.response.send_message("🪙 コインが足りねーぞ！おみくじを引いて貯めてこい！", ephemeral=True)
