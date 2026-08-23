@@ -1,14 +1,17 @@
 import discord
 from discord import app_commands
-from discord.ext import commands
+from discord.ext import commands, tasks
 import random
 import asyncio
-from datetime import datetime, date
+from datetime import datetime, date, time, timezone, timedelta
 import os
 import sqlite3
 from collections import Counter
 from flask import Flask
 from threading import Thread
+
+# JST (日本標準時) の設定
+JST = timezone(timedelta(hours=9))
 
 # ==========================================
 # 1. データベース設定 (SQLite)
@@ -22,9 +25,12 @@ def init_db():
     # モンスター所持テーブル
     c.execute('''CREATE TABLE IF NOT EXISTS inventory
                  (user_id INTEGER, monster_name TEXT)''')
-    # 煽りターゲット管理テーブル【追加】
+    # 煽りターゲット管理テーブル
     c.execute('''CREATE TABLE IF NOT EXISTS aoru_target
                  (id INTEGER PRIMARY KEY, target_user_id INTEGER)''')
+    # 今日のラッキーメンバーテーブル【追加】
+    c.execute('''CREATE TABLE IF NOT EXISTS lucky_member
+                 (id INTEGER PRIMARY KEY, user_id INTEGER, lucky_date TEXT)''')
     conn.commit()
     conn.close()
 
@@ -61,7 +67,7 @@ def get_inventory(user_id):
     conn.close()
     return [row[0] for row in rows]
 
-# --- 煽り機能用DB関数【追加】 ---
+# --- 煽り機能用DB関数 ---
 def set_target_id(user_id):
     conn = sqlite3.connect('bot_data.db')
     c = conn.cursor()
@@ -76,6 +82,32 @@ def get_target_id():
     row = c.fetchone()
     conn.close()
     return row[0] if row else None
+
+# --- 今日のラッキーメンバー用DB処理【追加】 ---
+async def get_or_update_lucky_member(guild):
+    today = datetime.now(JST).date().isoformat()
+    conn = sqlite3.connect('bot_data.db')
+    c = conn.cursor()
+    c.execute("SELECT user_id, lucky_date FROM lucky_member WHERE id = 1")
+    row = c.fetchone()
+
+    # すでに本日のラッキーメンバーが決まっている場合
+    if row and row[1] == today:
+        conn.close()
+        return row[0]
+
+    # 日付が変わっていたら新しく抽選（Bot以外のメンバーから選択）
+    members = [m for m in guild.members if not m.bot]
+    if not members:
+        conn.close()
+        return None
+
+    selected_member = random.choice(members)
+    c.execute("INSERT OR REPLACE INTO lucky_member (id, user_id, lucky_date) VALUES (1, ?, ?)",
+              (selected_member.id, today))
+    conn.commit()
+    conn.close()
+    return selected_member.id
 
 # ==========================================
 # 2. スリープ防止用 Web サーバー (Render用)
@@ -111,16 +143,15 @@ class MyBot(commands.Bot):
 
     async def setup_hook(self):
         init_db()
-        # 指定サーバーにスラッシュコマンドを同期（反映爆速化）
         MY_GUILD = discord.Object(id=TARGET_GUILD_ID)
         self.tree.copy_global_to(guild=MY_GUILD)
         await self.tree.sync(guild=MY_GUILD)
-        print(f"✅ おみくじ＆ガチャ＆煽りBot 起動完了")
+        print(f"✅ おみくじ＆ガチャ＆煽り＆ラッキーメンバーBot 起動完了")
 
 bot = MyBot()
 
 # ==========================================
-# 4. スラッシュコマンド（おみくじ・ガチャ・所持品・煽り）
+# 4. スラッシュコマンド
 # ==========================================
 
 # --- 毒舌おみくじコマンド ---
@@ -262,7 +293,7 @@ async def collection(interaction: discord.Interaction):
     
     await interaction.response.send_message(f"👾 **{interaction.user.display_name}のコレクション**\n{msg}")
 
-# --- 【追加】ターゲット設定コマンド (管理者限定) ---
+# --- ターゲット設定コマンド (管理者限定) ---
 @bot.tree.command(name="set_target", description="【運営専用】煽りターゲットを設定する")
 @app_commands.checks.has_permissions(administrator=True)
 async def set_target(interaction: discord.Interaction, target: discord.User):
@@ -272,7 +303,7 @@ async def set_target(interaction: discord.Interaction, target: discord.User):
         ephemeral=True
     )
 
-# --- 【追加】煽り実行コマンド ---
+# --- 煽り実行コマンド ---
 AORU_MESSAGES = [
     "おい <@{user_id}>、今日もお前は息してるだけか？ｗｗ",
     "ちょっと <@{user_id}> さん、またくだらないこと言ってますね～ｗ",
@@ -295,8 +326,30 @@ async def aoru(interaction: discord.Interaction):
     
     await interaction.response.send_message(msg)
 
+# --- 【追加】今日のラッキーメンバー確認コマンド ---
+LUCKY_COMMENTS = [
+    "✨ 今日のラッキーメンバーは <@{user_id}> だ！…まあ、気休め程度になｗ",
+    "🍀 今日の幸運の持ち主は <@{user_id}>！ 何か良いことあるかもな（適当）",
+    "🎉 本日のMVP（ラッキー）は <@{user_id}>！ ジュース奢ってもらえよ！",
+    "👑 本日のラッキーメンバーは <@{user_id}> だ！ 調子に乗るなよｗ"
+]
+
+@bot.tree.command(name="lucky", description="今日のラッキーメンバーを確認する！")
+async def lucky(interaction: discord.Interaction):
+    lucky_id = await get_or_update_lucky_member(interaction.guild)
+    
+    if not lucky_id:
+        await interaction.response.send_message("メンバーが見つからなかったぞ！", ephemeral=True)
+        return
+
+    comment = random.choice(LUCKY_COMMENTS).format(user_id=lucky_id)
+    
+    embed = discord.Embed(title="🌟 今日のラッキーメンバー", color=0xffd700)
+    embed.description = comment
+    await interaction.response.send_message(embed=embed)
+
 # ==========================================
-# 5. 【追加】自動反応イベント (ターゲットが喋ったらたまに割り込む)
+# 5. 自動反応イベント
 # ==========================================
 @bot.event
 async def on_message(message: discord.Message):
