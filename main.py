@@ -22,6 +22,9 @@ def init_db():
     # モンスター所持テーブル
     c.execute('''CREATE TABLE IF NOT EXISTS inventory
                  (user_id INTEGER, monster_name TEXT)''')
+    # 煽りターゲット管理テーブル【追加】
+    c.execute('''CREATE TABLE IF NOT EXISTS aoru_target
+                 (id INTEGER PRIMARY KEY, target_user_id INTEGER)''')
     conn.commit()
     conn.close()
 
@@ -57,6 +60,22 @@ def get_inventory(user_id):
     rows = c.fetchall()
     conn.close()
     return [row[0] for row in rows]
+
+# --- 煽り機能用DB関数【追加】 ---
+def set_target_id(user_id):
+    conn = sqlite3.connect('bot_data.db')
+    c = conn.cursor()
+    c.execute("INSERT OR REPLACE INTO aoru_target (id, target_user_id) VALUES (1, ?)", (user_id,))
+    conn.commit()
+    conn.close()
+
+def get_target_id():
+    conn = sqlite3.connect('bot_data.db')
+    c = conn.cursor()
+    c.execute("SELECT target_user_id FROM aoru_target WHERE id = 1")
+    row = c.fetchone()
+    conn.close()
+    return row[0] if row else None
 
 # ==========================================
 # 2. スリープ防止用 Web サーバー (Render用)
@@ -96,12 +115,12 @@ class MyBot(commands.Bot):
         MY_GUILD = discord.Object(id=TARGET_GUILD_ID)
         self.tree.copy_global_to(guild=MY_GUILD)
         await self.tree.sync(guild=MY_GUILD)
-        print(f"✅ おみくじ＆ガチャBot 起動完了")
+        print(f"✅ おみくじ＆ガチャ＆煽りBot 起動完了")
 
 bot = MyBot()
 
 # ==========================================
-# 4. スラッシュコマンド（おみくじ・ガチャ・所持品）
+# 4. スラッシュコマンド（おみくじ・ガチャ・所持品・煽り）
 # ==========================================
 
 # --- 毒舌おみくじコマンド ---
@@ -113,7 +132,6 @@ async def omikuji(interaction: discord.Interaction):
     coins, last_date = get_user_data(user_id)
     today = date.today().isoformat()
 
-    # 1. チャンネルのチェック
     if interaction.channel_id != OMIKUJI_CH_ID:
         await interaction.followup.send(
             f"❌ ここはおみくじ会場じゃないぞ！ <#{OMIKUJI_CH_ID}> で引け！", 
@@ -121,12 +139,10 @@ async def omikuji(interaction: discord.Interaction):
         )
         return
 
-    # 2. 1日1回チェック
     if last_date == today:
         await interaction.followup.send(f"⛩️ おみくじは1日1回までだぞ！また明日来い！", ephemeral=True)
         return
 
-    # 3. 確率計算と判定
     rand = random.random() * 100
     if rand <= 0.3: key = "隠吉"
     elif rand <= 3.3: key = "地の底"
@@ -145,7 +161,7 @@ async def omikuji(interaction: discord.Interaction):
         "極大吉": {"i": "🎇", "c": 0xff8c00, "m": "今日のお前、かなりイケてる運気だな！"},
         "超大吉": {"i": "🎆", "c": 0xffd700, "m": "今日のお前はまあまあ運気があるじゃないか！"},
         "大吉": {"i": "🌟", "c": 0xffd700, "m": "ヘッツ！大吉かよ！まあ運はあるんじゃないか？"},
-        "中吉": {"i": "✨", "c": 0x32cd32, "m": "なんだ中吉かつまんねー"},
+        "中吉": {"i": "✨", "c": 0x32cd32, "m": "なんだ中吉かつつまんねー"},
         "小吉": {"i": "⭐", "c": 0x32cd32, "m": "はっｗ吉ｗしょうもないね～"},
         "凶": {"i": "🪦", "c": 0x4b0082, "m": "おいおい！凶かよ！どんだけ運が悪いんだｗ"},
         "大凶": {"i": "👻", "c": 0x000000, "m": "大凶とかｗ 今日は外に出ないほうがいいんじゃねーか？"},
@@ -154,11 +170,9 @@ async def omikuji(interaction: discord.Interaction):
     
     data = FORTUNES[key]
     
-    # コイン付与（3枚固定）およびデータ保存
     new_coins = coins + 3
     update_user_data(user_id, new_coins, today)
 
-    # Embed結果作成
     embed = discord.Embed(title=f"⛩️ {interaction.user.display_name}さんの運勢", color=data["c"])
     embed.add_field(name=f"{data['i']} {key}", value=f"**{data['m']}**", inline=False)
     embed.add_field(name="🎁 特典", value="**ガチャコインを3枚** 手に入れました！", inline=False)
@@ -171,7 +185,6 @@ async def omikuji(interaction: discord.Interaction):
 async def gacha(interaction: discord.Interaction):
     await interaction.response.defer(ephemeral=True)
 
-    # 1. チャンネルチェック
     if interaction.channel_id != GACHA_CH_ID:
         await interaction.followup.send(
             f"❌ ここではガチャは引けないぞ！ <#{GACHA_CH_ID}> でやってくれ！", 
@@ -179,7 +192,6 @@ async def gacha(interaction: discord.Interaction):
         )
         return
 
-    # 2. 所持コインチェック
     user_id = interaction.user.id
     coins, last_date = get_user_data(user_id)
 
@@ -187,7 +199,6 @@ async def gacha(interaction: discord.Interaction):
         await interaction.followup.send("🪙 コインが足りねーぞ！おみくじを引いて貯めてこい！", ephemeral=True)
         return
 
-    # 3. コインを消費して抽選
     new_coins = coins - 1
     update_user_data(user_id, new_coins, last_date)
 
@@ -218,10 +229,8 @@ async def gacha(interaction: discord.Interaction):
     monster_name = random.choice(MONSTERS[rarity])
     image_url = MONSTER_DATA.get(monster_name)
     
-    # データベースに所持モンスターを登録
     add_monster(user_id, f"[{rarity}] {monster_name}")
 
-    # 結果表示
     embed = discord.Embed(title="🌀 モンスター召喚！", color=0x00ff00)
     embed.add_field(name="召喚結果", value=f"**{monster_name}** ({rarity})", inline=False)
     embed.set_footer(text=f"残りコイン: {new_coins}枚")
@@ -253,8 +262,64 @@ async def collection(interaction: discord.Interaction):
     
     await interaction.response.send_message(f"👾 **{interaction.user.display_name}のコレクション**\n{msg}")
 
+# --- 【追加】ターゲット設定コマンド (管理者限定) ---
+@bot.tree.command(name="set_target", description="【運営専用】煽りターゲットを設定する")
+@app_commands.checks.has_permissions(administrator=True)
+async def set_target(interaction: discord.Interaction, target: discord.User):
+    set_target_id(target.id)
+    await interaction.response.send_message(
+        f"🎯 煽りターゲットを <@{target.id}> に設定したぞ！", 
+        ephemeral=True
+    )
+
+# --- 【追加】煽り実行コマンド ---
+AORU_MESSAGES = [
+    "おい <@{user_id}>、今日もお前は息してるだけか？ｗｗ",
+    "ちょっと <@{user_id}> さん、またくだらないこと言ってますね～ｗ",
+    "<@{user_id}> が何か言いたそうにこちらを見ている！…が、誰も気にしていない！",
+    "なぁ <@{user_id}>、一回冷静になろうか？ｗｗ",
+    "【悲報】<@{user_id}>、今日も平常運転で滑る",
+    "おっと～？ <@{user_id}> 選手のありがたいお言葉だ～（棒読み）"
+]
+
+@bot.tree.command(name="aoru", description="設定されたターゲットをみんなで煽る！")
+async def aoru(interaction: discord.Interaction):
+    target_id = get_target_id()
+    
+    if not target_id:
+        await interaction.response.send_message("まだターゲットが設定されてねーぞ！運営に `/set_target` させろ！", ephemeral=True)
+        return
+
+    msg_template = random.choice(AORU_MESSAGES)
+    msg = msg_template.format(user_id=target_id)
+    
+    await interaction.response.send_message(msg)
+
 # ==========================================
-# 5. Bot 起動処理
+# 5. 【追加】自動反応イベント (ターゲットが喋ったらたまに割り込む)
+# ==========================================
+@bot.event
+async def on_message(message: discord.Message):
+    if message.author.bot:
+        return
+
+    target_id = get_target_id()
+    
+    # ターゲット本人が発言した時、15%の確率で自動で煽りレスをする
+    if target_id and message.author.id == target_id:
+        if random.random() < 0.15:
+            reply_msg = random.choice([
+                "おいおい、急に喋るなよｗｗ",
+                "はいはい、ワロスワロスｗｗ",
+                "相変わらず香ばしい発言ですね～ｗ",
+                "またお前か！！"
+            ])
+            await message.channel.send(reply_msg, reference=message)
+
+    await bot.process_commands(message)
+
+# ==========================================
+# 6. Bot 起動処理
 # ==========================================
 if __name__ == "__main__":
     keep_alive()
