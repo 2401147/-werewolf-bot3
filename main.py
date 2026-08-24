@@ -360,7 +360,7 @@ async def on_message(message: discord.Message):
     
     # ターゲット本人が発言した時、15%の確率で自動で煽りレスをする
     if target_id and message.author.id == target_id:
-        if random.random() < 0.15:
+        if random.random() < 0.45:
             reply_msg = random.choice([
                 "うおw",
                 "お前はもう死んでいる！",
