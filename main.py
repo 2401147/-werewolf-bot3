@@ -362,6 +362,8 @@ async def on_message(message: discord.Message):
     if target_id and message.author.id == target_id:
         if random.random() < 0.15:
             reply_msg = random.choice([
+                "うおw",
+                "お前はもう死んでいる！",
                 "おいおい、急に喋るなよｗｗ",
                 "はいはい、ワロスワロスｗｗ",
                 "相変わらず香ばしい発言ですね～ｗ",
