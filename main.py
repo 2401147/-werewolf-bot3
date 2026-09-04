@@ -53,9 +53,10 @@ def get_user_data(user_id):
 def update_user_data(user_id, coins, last_date):
   conn = sqlite3.connect('bot_data.db')
   c = conn.cursor()
+  # 修正箇所: SQL文字列の分割カンマエラーを修正
   c.execute(
-      'INSERT OR REPLACE INTO users (user_id, coins, last_omikuji) VALUES (?,',
-      ' ?, ?)',
+      'INSERT OR REPLACE INTO users (user_id, coins, last_omikuji) VALUES'
+      ' (?, ?, ?)',
       (user_id, coins, last_date),
   )
   conn.commit()
