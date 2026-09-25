@@ -202,40 +202,39 @@ async def gacha(interaction: discord.Interaction):
 
 @bot.tree.command(name='collection', description='仲間にしたモンスターを確認する')
 async def collection(interaction: discord.Interaction):
+    await interaction.response.defer(ephemeral=True) # 待機処理を追加
+    
     if interaction.channel_id != GACHA_CH_ID:
-        return await interaction.response.send_message(f'❌ 自分の仲間は <#{GACHA_CH_ID}> で確認してくれ！', ephemeral=True)
+        return await interaction.followup.send(f'❌ 自分の仲間は <#{GACHA_CH_ID}> で確認してくれ！', ephemeral=True)
 
     monsters = get_inventory(interaction.user.id)
     if not monsters:
-        return await interaction.response.send_message('まだモンスターを1匹も持ってないな。寂しい奴め！', ephemeral=True)
+        return await interaction.followup.send('まだモンスターを1匹も持ってないな。寂しい奴め！', ephemeral=True)
 
     counts = Counter(monsters)
     msg = '\n'.join([f'{m} ×{c}' for m, c in counts.items()])
-    await interaction.response.send_message(f'👾 **{interaction.user.display_name}のコレクション**\n{msg}')
-
-@bot.tree.command(name='set_target', description='【運営専用】煽りターゲットを設定する')
-@app_commands.checks.has_permissions(administrator=True)
-async def set_target(interaction: discord.Interaction, target: discord.User):
-    set_target_id(target.id)
-    await interaction.response.send_message(f'🎯 煽りターゲットを <@{target.id}> に設定したぞ！', ephemeral=True)
+    await interaction.followup.send(f'👾 **{interaction.user.display_name}のコレクション**\n{msg}', ephemeral=True)
 
 @bot.tree.command(name='aoru', description='設定されたターゲットをみんなで煽る！')
 async def aoru(interaction: discord.Interaction):
+    await interaction.response.defer() # 待機処理を追加
+    
     target_id = get_target_id()
     if not target_id:
-        return await interaction.response.send_message('まだターゲットが設定されてねーぞ！運営に `/set_target` させろ！', ephemeral=True)
-    await interaction.response.send_message(random.choice(AORU_MESSAGES).format(user_id=target_id))
+        return await interaction.followup.send('まだターゲットが設定されてねーぞ！運営に `/set_target` させろ！', ephemeral=True)
+    await interaction.followup.send(random.choice(AORU_MESSAGES).format(user_id=target_id))
 
 @bot.tree.command(name='lucky', description='今日のラッキーメンバーを確認する！')
 async def lucky(interaction: discord.Interaction):
+    await interaction.response.defer() # 待機処理を追加
+    
     lucky_id = await get_or_update_lucky_member(interaction.guild)
     if not lucky_id:
-        return await interaction.response.send_message('メンバーが見つからなかったぞ！', ephemeral=True)
+        return await interaction.followup.send('メンバーが見つからなかったぞ！', ephemeral=True)
 
     embed = discord.Embed(title='🌟 今日のラッキーメンバー', color=0xFFD700)
     embed.description = random.choice(LUCKY_COMMENTS).format(user_id=lucky_id)
-    await interaction.response.send_message(embed=embed)
-
+    await interaction.followup.send(embed=embed)
 # ==========================================
 # 5. 自動反応イベント
 # ==========================================
